@@ -1,21 +1,21 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
-  * All rights reserved.</center></h2>
-  *
-  * This software component is licensed by ST under BSD 3-Clause license,
-  * the "License"; You may not use this file except in compliance with the
-  * License. You may obtain a copy of the License at:
-  *                        opensource.org/licenses/BSD-3-Clause
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
+ * All rights reserved.</center></h2>
+ *
+ * This software component is licensed by ST under BSD 3-Clause license,
+ * the "License"; You may not use this file except in compliance with the
+ * License. You may obtain a copy of the License at:
+ *                        opensource.org/licenses/BSD-3-Clause
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -41,6 +41,9 @@
 #define BLDC2_CAN_ID 0x022
 
 #define my_CAN_ID 0x010
+
+#define PI 3.14159265
+#define PPR 200
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -51,12 +54,14 @@
 /* Private variables ---------------------------------------------------------*/
 CAN_HandleTypeDef hcan;
 
+TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 int cnt;
+float angle_rad;
 char scnt[100];
 
 CAN_TxHeaderTypeDef TxHeader;
@@ -73,8 +78,9 @@ static void MX_GPIO_Init(void);
 static void MX_CAN_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-void CAN_SEND(uint32_t _id, uint8_t *_data);
+void CAN_Send(uint32_t _id, uint8_t *_data);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -113,29 +119,26 @@ int main(void)
   MX_CAN_Init();
   MX_TIM3_Init();
   MX_USART2_UART_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
-  HAL_CAN_Start(&hcan);
-  if (HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
-	  Error_Handler();
-  }
-  uint8_t send_data[8];
+	HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
+	HAL_TIM_Base_Start_IT(&htim2);
+	HAL_CAN_Start(&hcan);
+	if (HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING)
+			!= HAL_OK) {
+		Error_Handler();
+	}
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-	  cnt = TIM3 -> CNT;
-	  sprintf(scnt, "%d\r\n", cnt);
-	  HAL_UART_Transmit( &huart2, scnt, strlen(scnt) + 1, 0xFFFF);
-	  memcpy(send_data, &cnt, 4);
-	  CAN_SEND( BLDC0_CAN_ID, send_data);
-	  HAL_Delay( 10 );
+	while (1) {
+		HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+		HAL_Delay(100);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
+	}
   /* USER CODE END 3 */
 }
 
@@ -208,26 +211,71 @@ static void MX_CAN_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN_Init 2 */
-  CAN_FilterTypeDef  sFilterConfig;
-  sFilterConfig.FilterIdHigh = my_CAN_ID<<5;
-  sFilterConfig.FilterIdLow = my_CAN_ID<<5;
-  sFilterConfig.FilterMaskIdHigh = my_CAN_ID<<5;
-  sFilterConfig.FilterMaskIdLow = my_CAN_ID<<5;
-  sFilterConfig.FilterFIFOAssignment = CAN_RX_FIFO0;
-  sFilterConfig.FilterBank = 0;
-  sFilterConfig.FilterMode = CAN_FILTERMODE_IDLIST;
-  sFilterConfig.FilterScale = CAN_FILTERSCALE_16BIT;
-  sFilterConfig.FilterActivation = ENABLE;
-  sFilterConfig.SlaveStartFilterBank = 14;
+	CAN_FilterTypeDef sFilterConfig;
+	sFilterConfig.FilterIdHigh = my_CAN_ID << 5;
+	sFilterConfig.FilterIdLow = my_CAN_ID << 5;
+	sFilterConfig.FilterMaskIdHigh = my_CAN_ID << 5;
+	sFilterConfig.FilterMaskIdLow = my_CAN_ID << 5;
+	sFilterConfig.FilterFIFOAssignment = CAN_RX_FIFO0;
+	sFilterConfig.FilterBank = 0;
+	sFilterConfig.FilterMode = CAN_FILTERMODE_IDLIST;
+	sFilterConfig.FilterScale = CAN_FILTERSCALE_16BIT;
+	sFilterConfig.FilterActivation = ENABLE;
+	sFilterConfig.SlaveStartFilterBank = 14;
 
-  if (HAL_CAN_ConfigFilter(&hcan, &sFilterConfig) != HAL_OK){
-	  Error_Handler();
-  }
-  HAL_NVIC_SetPriority(CAN_RX1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(CAN_RX1_IRQn);
-  HAL_NVIC_SetPriority(CAN_SCE_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(CAN_SCE_IRQn);
+	if (HAL_CAN_ConfigFilter(&hcan, &sFilterConfig) != HAL_OK) {
+		Error_Handler();
+	}
+	HAL_NVIC_SetPriority(CAN_RX1_IRQn, 0, 0);
+	HAL_NVIC_EnableIRQ(CAN_RX1_IRQn);
+	HAL_NVIC_SetPriority(CAN_SCE_IRQn, 0, 0);
+	HAL_NVIC_EnableIRQ(CAN_SCE_IRQn);
   /* USER CODE END CAN_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 36 - 1;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 10000 - 1;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
 
 }
 
@@ -322,10 +370,21 @@ static void MX_USART2_UART_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : LED_Pin */
+  GPIO_InitStruct.Pin = LED_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
 
 }
 
@@ -336,7 +395,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
 	}
 }
 
-void CAN_SEND(uint32_t _id, uint8_t *_data) {
+void CAN_Send(uint32_t _id, uint8_t *_data) {
 	TxHeader.StdId = _id;					// Tx CAN ID
 	TxHeader.RTR = CAN_RTR_DATA;
 	TxHeader.IDE = CAN_ID_STD;
@@ -346,7 +405,20 @@ void CAN_SEND(uint32_t _id, uint8_t *_data) {
 	if (HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox) != HAL_OK) {
 		Error_Handler();
 	}
-	while(HAL_CAN_GetTxMailboxesFreeLevel(&hcan) == 0) {}
+	while (HAL_CAN_GetTxMailboxesFreeLevel(&hcan) == 0) {
+	}
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+	if (htim == &htim2) {
+		uint8_t send_data[8] = {0,0,0,0,0,0,0,0};
+		cnt = (int16_t) (TIM3->CNT);
+		angle_rad = 2 * PI * cnt / (4 * PPR);
+		sprintf(scnt, "%d, %f\r\n", cnt, angle_rad);
+		HAL_UART_Transmit(&huart2, scnt, strlen(scnt) + 1, 0xFFFF);
+		memcpy(send_data, &angle_rad, 4);
+		CAN_Send( BLDC0_CAN_ID, send_data);
+	}
 }
 /* USER CODE END 4 */
 
@@ -357,11 +429,10 @@ void CAN_SEND(uint32_t _id, uint8_t *_data) {
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  __disable_irq();
-  while (1)
-  {
-  }
+	/* User can add his own implementation to report the HAL error return state */
+	__disable_irq();
+	while (1) {
+	}
   /* USER CODE END Error_Handler_Debug */
 }
 

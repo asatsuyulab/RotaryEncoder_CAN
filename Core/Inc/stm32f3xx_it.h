@@ -59,6 +59,7 @@ void SysTick_Handler(void);
 void CAN_TX_IRQHandler(void);
 void CAN_RX0_IRQHandler(void);
 void CAN_RX1_IRQHandler(void);
+void TIM2_IRQHandler(void);
 /* USER CODE BEGIN EFP */
 
 /* USER CODE END EFP */
